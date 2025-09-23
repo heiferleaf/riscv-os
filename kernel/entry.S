@@ -23,5 +23,5 @@ _start:
     # 4. 跳转到 C 主函数
     call start          
 
-hang:
-    j hang              # 如果返回了，就死循环
+loop:
+    j loop              # 如果返回了，就死循环

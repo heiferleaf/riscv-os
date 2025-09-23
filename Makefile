@@ -3,12 +3,13 @@ CC  = $(CROSS_COMPILE)gcc
 LD  = $(CROSS_COMPILE)ld
 
 CFLAGS = -Wall -O2 -nostdlib -ffreestanding \
-         -march=rv64imac -mabi=lp64 -mcmodel=medany
+         -march=rv64imac -mabi=lp64 -mcmodel=medany -mno-relax \
+         -fno-builtin -fno-common
 
-LDFLAGS = -T kernel/kernel.ld
+LDFLAGS = -T kernel/kernel.ld -melf64lriscv
 
 # 目标文件
-OBJS = kernel/entry.o kernel/start.o kernel/uart.o
+OBJS = kernel/entry.o kernel/start.o kernel/uart.o kernel/printf.o kernel/console.o
 
 # 最终内核
 all: kernel/kernel.elf
@@ -32,3 +33,9 @@ clean:
 # 运行QEMU
 run: kernel/kernel.elf
 	qemu-system-riscv64 -machine virt -nographic -bios none -kernel kernel/kernel.elf
+
+nm: 
+	$(CROSS_COMPILE)nm kernel/kernel.elf
+
+objdump:
+	$(CROSS_COMPILE)objdump -h kernel/kernel.elf
