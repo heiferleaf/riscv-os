@@ -1,30 +1,45 @@
-ENTRY(_start)              /* 告诉链接器，程序入口是 _start */
+ENTRY(_start)
 SECTIONS {
-    . = 0x80000000;        /* RISC-V virt 平台规定内核从这里加载 */
+    . = 0x80000000;
 
+    _stext = .;
     .text : {
-        *(.text .text.*)   /* 所有代码放这里 */
+        *(.text .text.*)
     }
+    . = ALIGN(0x1000);
+    _etext = .;
 
+    _srodata = .;
     .rodata : {
         *(.rodata .rodata.*)
     }
+    . = ALIGN(0x1000);
+    _erodata = .;
 
+    _sdata = .;
     .data : {
-        *(.data .data.*)   /* 已初始化的全局变量 */
+        *(.data .data.*)
     }
+    . = ALIGN(0x1000);
+    _edata = .;
 
+    _sbss = .;
     .bss : {
-        bss_start = .;     /* 符号，BSS 段开始 */
+        bss_start = .;
         *(.bss .bss.*)
-        *(COMMON)          /* 未初始化的全局变量 */
-        bss_end = .;       /* 符号，BSS 段结束 */
+        *(COMMON)
+        bss_end = .;
     }
+    . = ALIGN(0x1000);
+    _ebss = .;
 
     .stack : {
-        . = ALIGN(16);
+        . = ALIGN(0x1000);
         stack_bottom = .;
-        . = . + 0x4000;    /* 给栈分配 16KB */
-        stack_top = .;     /* 栈顶符号，entry.S 会用 */
+        . = . + 0x4000;
+        stack_top = .;
     }
+    . = ALIGN(0x1000);
+
+    PROVIDE(_end = .);
 }

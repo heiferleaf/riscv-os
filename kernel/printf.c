@@ -1,9 +1,7 @@
 #include <stdarg.h>
 #include <limits.h>
-
-#include "types.h"
 #include "printf.h"
-#include "console.h"
+#include "defs.h"
 
 static char digits[] = "0123456789abcdef";
 /**
@@ -74,6 +72,15 @@ int printf(const char *fmt, ...)
         else if(c == 'c') {
             char ch = (char)va_arg(ap, int);    
             console_putc(ch);
+        }
+        // 16 进制输出指针
+        else if(c == 'p') {
+            void *ptr = va_arg(ap, void*);
+            uint64 x = (uint64)ptr;
+            console_putc('0');
+            console_putc('x');
+            printint(x, 16, 0);
+
         }
         // 转移输出%
         else if(c == '%' ) {

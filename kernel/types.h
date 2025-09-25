@@ -12,4 +12,7 @@ typedef unsigned long uint64;
 
 // typedef  pde_t;
 
+void *memset(void *dst, int c, unsigned long n);
+void *memcpy(void *dst, const void *src, unsigned long n);
+
 #endif

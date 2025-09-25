@@ -1,5 +1,4 @@
-#include "console.h"
-#include "uart.h"
+#include "defs.h"
 
 /**
 当前的 console 仅支持提供给 printf 的控制台输出接口
