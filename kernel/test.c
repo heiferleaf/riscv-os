@@ -1,5 +1,33 @@
 #include "defs.h"
 #include "printf.h"
+
+void test_printf(void) {
+    // 基本功能测试
+    
+    printf("Int: %d\n", 42);
+    printf("Hex: 0x%x\n", 0xABC);
+    printf("Str: %s\n", "Hello");
+    printf("Char: %c\n", 'X');
+    printf("Percent: %%\n");
+
+    // 边界测试
+    printf("Boundary Test:\n");
+    printf("INT_MIN: %d\n", -9223372036854775807LL - 1);
+    printf("NULL Str: %s\n", (char*)0);
+    printf("Unknown: %q\n"); // 未知格式测试
+
+    // 清屏测试
+    printf("Before Clear\n");
+    clear_screen();
+    printf("After Clear\n");
+
+    // 性能测试 (大量输出)
+    printf("Performance Test:\n");
+    for (int i = 0; i < 100; i++) {
+        printf("Count: %d\n", i);
+    }
+}
+
 void test_physical_memory(void) {
     kinit();
     // 分配两个页
@@ -88,5 +116,25 @@ void test_virtual_memory(void) {
 
     // 检查 UART 是否可用
     uart_putc('T');
-    printf("UART test done\n");
+    printf("\nUART test done\n");
+}
+
+void test_syscall() {
+    asm volatile("li a7, 123; ecall"); // a7=123为系统调用号
+}
+
+void test_illegal_instruction() {
+    asm volatile(".word 0xFFFFFFFF"); // 非法指令
+}
+
+void test_load_page_fault() {
+    volatile int *p = (int*)0x12345678; // 未映射地址
+    int x = *p; // 触发load异常
+}
+
+void test_kernel_timer_interrupt() {
+    printf("[TEST] Forcing timer interrupt from kernel...\n");
+    uint64 now = r_time();
+    w_stimecmp(now + 100); // 100个时钟周期后触发（极短，确保尽快中断）
+    printf("[TEST] Timer interrupt set for now+10 cycles (%lu)\n", now+10);
 }

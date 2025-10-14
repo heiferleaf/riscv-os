@@ -2,6 +2,8 @@
 
 #include "defs.h"
 
+// register_interrupt(UART0_IRQ, uartintr);
+
 static inline void mmio_write(uint64_t addr, uint8_t value) {
     *(volatile uint8_t *)addr = value;
 }

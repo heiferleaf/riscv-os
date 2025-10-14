@@ -23,6 +23,14 @@ kvmmake(void)
   // 1. 设备区 UART
   map_region(kpgtbl, UART0, UART0, PGSIZE, PTE_R | PTE_W);
 
+  // virtio mmio disk interface
+  map_region(kpgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // 映射 CLINT 区域（定时器、软件中断）
+  map_region(kpgtbl, 0x02000000, 0x02000000, 0x10000, PTE_R | PTE_W);
+   // PLIC
+  map_region(kpgtbl, PLIC, PLIC, 0x4000000, PTE_R | PTE_W);
+
   // 2. .text 只读可执行
   map_region(kpgtbl, (uint64)_stext, (uint64)_stext, (uint64)_etext - (uint64)_stext, PTE_R | PTE_X);
 
@@ -51,7 +59,7 @@ void kvminithart(void) {
     // 设置SATP寄存器，开启分页
     uint64_t pa = (uint64_t)kernel_pagetable;
     // MODE=Sv39, PPN=pa>>12,设置内核采用39位虚拟地址，三级页表机制，同时告诉硬件关于关于内核跟页表的物理页号
-    uint64_t satp = (8L << 60) | (pa >> 12);
+    uint64_t satp = SATP_SV39 | (pa >> 12);
     // 内联汇编，意思是“把satp的值写入SATP寄存器”
     asm volatile("csrw satp, %0" : : "r"(satp));
     asm volatile("sfence.vma zero, zero");
