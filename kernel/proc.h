@@ -46,12 +46,12 @@ struct proc {
 
     // 需要持有lock才能访问的字段
     enum procstatus state;      // 进程状态
-    void *chan;                 // 如果进程在睡眠，则为睡眠通道，否则为0
+    void *chan;                 // 如果进程在睡眠，则为睡眠通道，否则为0，用于同步的唤醒
     int killed;                 // 如果进程被杀死，则为非0
-    int xstate;                 // 进程退出状态
+    int xstate;                 // 进程退出状态，供父进程使用
     int pid;                    // 进程ID
 
-    struct proc *parent;
+    struct proc *parent;        // 父进程指针
 
     uint64 kstack;              // 进程内核栈虚拟地址
     uint64 sz;                  // 进程内存大小（字节）
@@ -69,3 +69,5 @@ struct cpu {
     int noff;                   // 该CPU上关闭中断的嵌套深度，为0的时候就可以打开中断
     int intena;                 // 中断之前是否开启
 };
+
+extern struct proc proc[NPROC];

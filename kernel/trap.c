@@ -184,8 +184,8 @@ kerneltrap()
   // scause: 保存异常/中断原因码
   uint64 scause = r_scause();
 
-  printf("[KERNELTRAP] scause=0x%lx sepc=0x%lx sstatus=0x%lx stval=0x%lx sp=0x%lx ra=0x%lx\n",
-    scause, sepc, sstatus, r_stval(), (uint64)__builtin_frame_address(0), r_ra());
+//   printf("[KERNELTRAP] scause=0x%lx sepc=0x%lx sstatus=0x%lx stval=0x%lx sp=0x%lx ra=0x%lx\n",
+//     scause, sepc, sstatus, r_stval(), (uint64)__builtin_frame_address(0), r_ra());
   
   // SPP 位表示在处理这个中断/异常之前的特权级别
   // 而kerneltrap只能从内核态进入，因此SPP必须为1

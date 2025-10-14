@@ -131,7 +131,17 @@ int map_page(pagetable_t pt, uint64 va, uint64 pa, int perm) {
     return 0;
 }
 
-// 销毁整个页表递归释放所有页表页（不释放映射的物理页）
+// 释放整个页表
+// (包括中间页表的页表项和叶子节点的实际物理页)
+void uvmfree(pagetable_t pagetable, uint64 sz)
+{
+    if(sz > 0)
+        uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);
+    destroy_pagetable(pagetable);
+}
+
+// 销毁整个页表递归释放所有页表页
+// （不释放映射的叶子节点中物理页）
 void destroy_pagetable(pagetable_t pt) {
     // 遍历页表的512个条目（每个页表有512项）
     for(int i=0; i<512; ++i) {
@@ -143,11 +153,66 @@ void destroy_pagetable(pagetable_t pt) {
             pagetable_t child = (pagetable_t)PTE2PA(pte);
             destroy_pagetable(child);
             // 释放子页表占用的内存
-            kfree(child);
+            pt[i] = 0;
         }
     }
     // 释放当前页表占用的内存
     kfree(pt);
+}
+
+// 提供一个把进程中的所有物理页释放掉的接口
+// (也就是释放页表中的叶子节点的页表项)
+void
+uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
+{
+  uint64 a;
+  pte_t *pte;
+
+  if((va % PGSIZE) != 0)
+    panic("uvmunmap: not aligned");
+
+  for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
+    // 查找叶子页表项（即实际映射的物理页）
+    if((pte = walk_lookup(pagetable, a) == 0))
+      continue;   // 没有分配页表项，跳过
+    if((*pte & PTE_V) == 0)
+      continue;   // 没有分配物理页，跳过
+    if(do_free){
+      uint64 pa = PTE2PA(*pte);
+      kfree((void*)pa); // 释放物理页
+    }
+    *pte = 0; // 清空页表项
+  }
+}
+
+int
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+{
+    pte_t *pte;
+    uint64 pa, i;
+    uint flags;
+    char *mem;
+    
+    for(i = 0; i < sz; i += PGSIZE){
+        if((pte = walk_lookup(old, i)) == 0)
+            continue;   // old中没有映射，跳过 
+        if((*pte & PTE_V) == 0)
+            continue;   // old中没有映射，跳过
+        pa = PTE2PA(*pte);
+        flags = PTE_FLAGS(*pte);
+        if((mem = kalloc()) == 0)
+            goto err;
+        memmove(mem, (char*)pa, PGSIZE);
+        if(map_page(new, i, pa, flags) != 0){
+            kfree(mem);
+            goto err;
+        }
+    }
+    return 0;
+    
+     err:
+    uvmunmap(new, 0, i / PGSIZE, 1);
+    return -1;
 }
 
 // 调试用：递归打印页表内容
@@ -196,7 +261,8 @@ int map_region(pagetable_t pt, uint64 va, uint64 pa, uint64 sz, int perm) {
     return 0;
 }
 
-// 解除一个虚拟地址的映射
+// 解除一个虚拟地址在叶子页表中对物理页的映射
+// (不会删除物理页)
 int unmap_page(pagetable_t pt, uint64 va) {
     pte_t* pte = walk_lookup(pt, va);
     if(!pte || !(*pte & PTE_V)) return -1;
