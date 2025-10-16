@@ -8,7 +8,6 @@
 void
 main()
 {
-    printf("main\n");
     w_sstatus(r_sstatus() | SSTATUS_SIE);
     kinit();         // 启用页式管理
     kvminit();       // 创建内核页表并映像内核部分
@@ -20,14 +19,16 @@ main()
 
     // 创建根测试进程
     struct proc *p = allocproc();
+
     initproc = p;
     safestrcpy(p->name, "initproc", sizeof(p->name));
     // 可以设置 trapframe 的入口点为 test_entry
     // p->trapframe->epc = (uint64)test_entry; // 如果支持epc
     // 或直接把 test_entry 放在 forkret 或进程调度后调用
-    acquire(&p->lock);
+    // acquire(&p->lock);
     p->state = RUNNABLE;
     release(&p->lock);
+    printf("main\n");
 
     // 启动调度器
     scheduler();

@@ -3,6 +3,7 @@ SECTIONS {
     . = 0x80000000;
 
     _stext = .;
+
     .text : {
         kernel/entry.o(_entry)
         *(.text .text.*)
@@ -11,33 +12,31 @@ SECTIONS {
         *(trampsec)
         . = ALIGN(0x1000);
         ASSERT(. - _trampoline == 0x1000, "error: trampoline larger than one page");
+        PROVIDE(_etext = .);
     }
-    . = ALIGN(0x1000);
-    _etext = .;
 
-    _srodata = .;
     .rodata : {
+        . = ALIGN(16);
+        *(.srodata .srodata.*) /* do not need to distinguish this from .rodata */
+        . = ALIGN(16);
         *(.rodata .rodata.*)
     }
-    . = ALIGN(0x1000);
-    _erodata = .;
 
-    _sdata = .;
     .data : {
+        . = ALIGN(16);
+        *(.sdata .sdata.*) /* do not need to distinguish this from .data */
+        . = ALIGN(16);
         *(.data .data.*)
     }
-    . = ALIGN(0x1000);
-    _edata = .;
 
-    _sbss = .;
     .bss : {
+        . = ALIGN(16);
         bss_start = .;
+        *(.sbss .sbss.*) /* do not need to distinguish this from .bss */
+        . = ALIGN(16);
         *(.bss .bss.*)
-        *(COMMON)
         bss_end = .;
     }
-    . = ALIGN(0x1000);
-    _ebss = .;
 
     .stack : {
         . = ALIGN(0x1000);

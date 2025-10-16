@@ -150,6 +150,7 @@ void test_allocproc_freeproc() {
         printf("allocproc success: pid=%d\n", p1->pid);
         // 为了安全，先把进程设为 UNUSED（freeproc 已经不持锁）
         freeproc(p1);
+        release(&p1->lock);
         printf("freeproc success: pid freed\n");
     } else {
         printf("allocproc failed\n");
@@ -221,7 +222,7 @@ void test_sleep_wakeup_simulated() {
     }
 
     // 把这个进程放到 SLEEPING 上，并设置 chan
-    acquire(&p->lock);
+    // acquire(&p->lock);
     p->chan = (void*)0xdead;
     p->state = SLEEPING;
     release(&p->lock);
@@ -250,9 +251,13 @@ void test_sleep_wakeup_simulated() {
 
 // 统一测试入口（按顺序运行不会阻塞调度器）
 void test_entry() {
-    // test_allocproc_freeproc();
-    // test_kfork();
-    // test_kwait();
-    // test_sleep_wakeup_simulated();
+    test_allocproc_freeproc();
+    test_kfork();
+    test_kwait();
+    test_sleep_wakeup_simulated();
     printf("=== all tests done ===\n");
+
+    initproc->state = ZOMBIE; // 让 initproc 退出，结束模拟
+    acquire(&initproc->lock);
+    sched();
 }

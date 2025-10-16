@@ -8,10 +8,6 @@
 .globl kernelvec
 .align 4
 kernelvec:
-        # 输出 'A' 到 UART
-        li t0, 0x10000000    # UART0 基地址
-        li t1, 'A'           # 要输出的字符
-        sb t1, 0(t0)         # 写入 UART0, 发送 'A'
 
         # make room to save registers.
         addi sp, sp, -256
@@ -38,11 +34,6 @@ kernelvec:
 
         # call the C trap handler in trap.c
         call kerneltrap
-
-        # 输出 'B' 到 UART
-        li t0, 0x10000000
-        li t1, 'B'
-        sb t1, 0(t0)
 
         # restore registers.
         ld ra, 0(sp)

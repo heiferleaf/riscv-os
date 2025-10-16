@@ -69,6 +69,7 @@ void            wakeup(void *);
 struct proc*    myproc(void);
 struct proc*    allocproc(void);
 void            kexit(int status);
+void            proc_mapstacks(pagetable_t);
 void            procinit(void);
 void            freeproc(struct proc *p);
 void            proc_freepagetable(pagetable_t, uint64);

@@ -75,7 +75,6 @@ void handle_syscall(void) {
 void 
 trapinit(void)
 {
-    printf("trapinit called\n");
     initlock(&tickslock, "time");
     register_interrupt(5, handle_clockintr);           // 5: 时钟中断
     register_interrupt(2, handle_illegal_instruction); // 2: 非法指令
@@ -198,8 +197,8 @@ kerneltrap()
   // 0 表示未知中断源
   if((which_dev = devintr()) == 0){
     // interrupt or trap from an unknown source
-    printf("scause=0x%lx sepc=0x%lx stval=0x%lx\n", scause, r_sepc(), r_stval());
-    panic("kerneltrap");
+    // printf("scause=0x%lx sepc=0x%lx stval=0x%lx\n", scause, r_sepc(), r_stval());
+    // panic("kerneltrap");
   }
 
   // give up the CPU if this is a timer interrupt.

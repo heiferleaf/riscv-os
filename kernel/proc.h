@@ -23,7 +23,7 @@ struct context {
     uint64 s11;
 };
 
-enum procstatus { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+enum procstatus { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Trap现场保存结构（trapframe），用于trap发生时保存/恢复所有必要寄存器
 struct trapframe {

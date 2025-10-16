@@ -19,6 +19,22 @@ extern char trampoline[]; // trampoline.S
 
 struct spinlock wait_lock;
 
+void
+proc_mapstacks(pagetable_t kpgtbl)
+{
+  struct proc *p;
+  
+  for(p = proc; p < &proc[NPROC]; p++) {
+    char *pa = kalloc();
+    if(pa == 0)
+      panic("kalloc");
+    uint64 va = KSTACK((int) (p - proc));
+    // kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+    if(map_page(kpgtbl, va, (uint64)pa, PTE_R | PTE_W) != 0)
+      panic("mapstack");
+  }
+}
+
 // 初始化进程管理
 void
 procinit(void)
@@ -131,6 +147,7 @@ scheduler(void)
 
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
+      printf("[scheduler]: check pid=%d state=%d\n", p->pid, p->state);
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
         // Switch to chosen process.  It is the process's job
@@ -138,6 +155,7 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        printf("before switch to pid=%d\n", p->pid);
         proc_switch(&c->context, &p->context);
 
         // Process is done running for now.
@@ -163,6 +181,8 @@ forkret(void)
   static int first = 1;
   struct proc *p = myproc();
 
+  // printf("count: %d", first++);
+
   // 仍然持有 scheduler 传递过来的 p->lock。
   release(&p->lock);
 
@@ -182,9 +202,9 @@ forkret(void)
 //     }
 //   }
 
-// 这里选择直接运行测试代码
-printf("forkret: enter pid=%d, kstack=%p\n", p->pid, (void*)p->kstack);
-test_entry();
+  // 这里选择直接运行测试代码
+  printf("forkret: enter pid=%d, kstack=%p\n", p->pid, (void*)p->kstack);
+  test_entry();
 
   // 返回用户空间，模拟 usertrap() 的返回。
 //   prepare_return();
@@ -284,27 +304,29 @@ allocpid(void)
 struct proc*
 allocproc(void)
 {
+  printf("[TEXT] enter allocproc\n");
     struct proc *p;
 
     for(p = proc; p < &proc[NPROC]; p++) {
+      printf("[TEXT] checking proc %d, state=%d\n", (int)(p - proc), p->state);
         acquire(&p->lock);
         if(p->state == UNUSED) {
             p->pid = allocpid();
+            printf("[TEXT] allocproc: pid=%d\n", p->pid);
+            p->state = USED;
 
             // 给内核的页表添加该进程的 trap 帧的物理页
             p->trapframe = (struct trapframe *)kalloc();
+            printf("[TEXT] allocproc: pid=%d, trapframe=%p\n", p->pid, (void*)p->trapframe);
             if(p->trapframe == 0) {
-                // 内存的物理页面不足了
-                p->state = UNUSED;
+                freeproc(p);
                 release(&p->lock);
                 return 0;
             }
             // 分配用户页表
             p->pagetable = proc_pagetable(p);
             if(p->pagetable == 0) {
-                kfree((void *)p->trapframe);
-                p->trapframe = 0;
-                p->state = UNUSED;
+                freeproc(p);
                 release(&p->lock);
                 return 0;
             }
@@ -312,10 +334,11 @@ allocproc(void)
             memset(&p->context, 0, sizeof(p->context));
             p->context.ra = (uint64)forkret;
             p->context.sp = p->kstack + PGSIZE;
-            release(&p->lock);
+
+            printf("[TEXT] allocproc: pid=%d, kstack=%p\n", p->pid, (void*)p->kstack);
             return p;
-        } 
-        release(&p->lock);
+        } else
+            release(&p->lock);
     }
     return 0;
 }
@@ -343,6 +366,8 @@ kfork(void)
     int i, pid;
     struct proc *np;
     struct proc *p = myproc();  // 父进程
+
+    printf("[DEBUG] in kfork, pid: %d\n", p->pid);
 
     if((np = allocproc()) == 0) {
         return -1;

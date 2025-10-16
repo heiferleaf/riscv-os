@@ -37,7 +37,10 @@ kfree(void *pa) {
 
     // 当pa的地址没有和页对齐，或者pa的地址小于内核结束地址，或者pa的地址大于等于物理内存结束地址时，触发panic
     if(((uint64)pa % PGSIZE) != 0 || (char*)pa < _end || (uint64)pa >= PHYSTOP)
-        return; // 目前还没有实现panic函数，所以这里直接返回
+    {
+        printf("kfree: bad address %p\n", pa);
+        panic("kfree: invalid address\n");
+    }
 
     memset(pa, 1, PGSIZE);
 

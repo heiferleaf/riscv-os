@@ -7,12 +7,9 @@
 
 pagetable_t kernel_pagetable;
 
-extern char _stext[], _etext[];
-extern char _srodata[], _erodata[];
-extern char _sdata[], _edata[];
-extern char _sbss[], _ebss[];
-extern char stack_bottom[], stack_top[];
-extern char _end[];
+extern char _etext[];
+extern char trampoline[]; // trampoline.S
+
 
 pagetable_t
 kvmmake(void)
@@ -27,24 +24,19 @@ kvmmake(void)
   map_region(kpgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
   // 映射 CLINT 区域（定时器、软件中断）
-  map_region(kpgtbl, 0x02000000, 0x02000000, 0x10000, PTE_R | PTE_W);
+//   map_region(kpgtbl, 0x02000000, 0x02000000, 0x10000, PTE_R | PTE_W);
    // PLIC
   map_region(kpgtbl, PLIC, PLIC, 0x4000000, PTE_R | PTE_W);
 
-  // 2. .text 只读可执行
-  map_region(kpgtbl, (uint64)_stext, (uint64)_stext, (uint64)_etext - (uint64)_stext, PTE_R | PTE_X);
+  // 假设 KERNBASE、PHYSTOP 已定义为物理内存区的开始和结束
+  map_region(kpgtbl, KERNBASE, KERNBASE, (uint64)_etext - KERNBASE, PTE_R | PTE_X);
 
-  // 3. .rodata 只读
-  map_region(kpgtbl, (uint64)_srodata, (uint64)_srodata, (uint64)_erodata - (uint64)_srodata, PTE_R);
+  map_region(kpgtbl, (uint64)_etext, (uint64)_etext, PHYSTOP - (uint64)_etext, PTE_R | PTE_W);
 
-  // 4. .data 可读写
-  map_region(kpgtbl, (uint64)_sdata, (uint64)_sdata, (uint64)_edata - (uint64)_sdata, PTE_R | PTE_W);
+  // 7. 把trampoline和进程的这段物理地址都映射到TRAMPOLINE
+  map_region(kpgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 
-  // 5. .bss 可读写
-  map_region(kpgtbl, (uint64)_sbss, (uint64)_sbss, (uint64)_ebss - (uint64)_sbss, PTE_R | PTE_W);
-
-  // 6. 栈区 可读写
-  map_region(kpgtbl, (uint64)stack_bottom, (uint64)stack_bottom, (uint64)stack_top - (uint64)stack_bottom, PTE_R | PTE_W);
+  proc_mapstacks(kpgtbl);
 
   return kpgtbl;
 }
