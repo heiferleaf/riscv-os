@@ -24,6 +24,7 @@ void*           memset(void *dst, int c, unsigned long n);
 void*           memmove(void*, const void*, uint);
 void*           memcpy(void *dst, const void *src, unsigned long n);
 char*           safestrcpy(char*, const char*, int);
+int             strlen(const char*);
 
 // uart.c
 void            uart_putc(char c);
@@ -56,6 +57,12 @@ void            destroy_pagetable(pagetable_t pt);
 void            dump_pagetable(pagetable_t pt, int level);
 void            kvminit(void);
 void            kvminithart(void);
+int             copyin(pagetable_t, char *, uint64, uint64);
+int             copyinstr(pagetable_t, char *, uint64, uint64);
+int             copyout(pagetable_t, uint64, char *, uint64);
+void            uvminit(pagetable_t, uchar *, uint);
+uint64          vmfault(pagetable_t pagetable, uint64 va, int read);
+int             ismapped(pagetable_t, uint64);
 
 // proc.c
 int             cpuid(void);
@@ -68,15 +75,25 @@ void            sleep(void *, struct spinlock *);
 void            wakeup(void *);
 struct proc*    myproc(void);
 struct proc*    allocproc(void);
-void            kexit(int status);
 void            proc_mapstacks(pagetable_t);
 void            procinit(void);
 void            freeproc(struct proc *p);
 void            proc_freepagetable(pagetable_t, uint64);
 pagetable_t     proc_pagetable(struct proc *);
 int             kfork(void);
-int             kwait(uint64 *);
+int             kwait(uint64);
+void            kexit(int status);
+int             kkill(int);
+int             killed(struct proc*);
+void            setkilled(struct proc*);
 
+// syscall.c
+void            syscall(void);
+void            argint(int, int*);
+int             argstr(int, char*, int);
+void            argaddr(int, uint64 *);
+int             fetchstr(uint64, char*, int);
+int             fetchaddr(uint64, uint*);
 
 // trap.c
 extern uint     ticks;
@@ -86,6 +103,12 @@ void            trapinithart(void);
 void            prepare_return(void);
 void            register_interrupt(int irq, void (*handler)(void));
 void            interrupt_dispatch(int irq);
+
+// plic.c
+void            plicinit(void);
+void            plicinithart(void);
+int             plic_claim(void);
+void            plic_complete(int irq);
 
 // test.c
 void            test_physical_memory(void);

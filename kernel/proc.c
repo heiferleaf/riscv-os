@@ -19,6 +19,9 @@ extern char trampoline[]; // trampoline.S
 
 struct spinlock wait_lock;
 
+extern char _binary_user_initcode_start[];
+extern char _binary_user_initcode_end[];
+
 void
 proc_mapstacks(pagetable_t kpgtbl)
 {
@@ -77,17 +80,6 @@ myproc(void)
   return p;
 }
 
-int
-killed(struct proc *p)
-{
-  int k;
-  
-  acquire(&p->lock);
-  k = p->killed;
-  release(&p->lock);
-  return k;
-}
-
 void 
 yield() {
     struct proc *p = myproc();
@@ -137,36 +129,37 @@ scheduler(void)
 
   c->proc = 0;
   for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting. Then turn them back off
-    // to avoid a possible race between an interrupt
-    // and wfi.
+    // 最近运行的进程可能已经关闭了中断；
+    // 这里先打开中断以避免死锁（如果所有进程都在等待）。
+    // 然后再关闭中断，避免中断和 wfi 指令之间的竞争。
     intr_on();
     intr_off();
 
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
-      printf("[scheduler]: check pid=%d state=%d\n", p->pid, p->state);
       acquire(&p->lock);
+      printf("[scheduler]: check pid=%d state=%d\n", p->pid, p->state);
       if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
+        // 切换到选中的进程。进程自己负责释放锁，
+        // 并在跳回调度器前重新获取锁。
         p->state = RUNNING;
         c->proc = p;
         printf("before switch to pid=%d\n", p->pid);
+
+        // 值得注意的是，对于 cpu 的 context 来说，执行这个汇编代码之前，会把ra设置为下一条指令的地址
         proc_switch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
+        // 进程暂时运行结束，应该在跳回调度器前修改自己的状态。
         c->proc = 0;
         found = 1;
       }
+      // 这一行代码价值千金啊！！！
+      // 他保证了一个进程在调度后，能正确释放锁
+      // 同时这也和sched() 中，要求发生调度的进程必须持有锁是一致的
       release(&p->lock);
     }
     if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
+      // 没有可运行的进程；让当前 CPU 停止运行，直到有中断发生。
       asm volatile("wfi");
     }
   }
@@ -204,13 +197,13 @@ forkret(void)
 
   // 这里选择直接运行测试代码
   printf("forkret: enter pid=%d, kstack=%p\n", p->pid, (void*)p->kstack);
-  test_entry();
+  // test_entry();
 
   // 返回用户空间，模拟 usertrap() 的返回。
-//   prepare_return();
-//   uint64 satp = MAKE_SATP(p->pagetable);
-//   uint64 trampoline_userret = TRAMPOLINE + (userret - trampoline);
-//   ((void (*)(uint64))trampoline_userret)(satp);
+  prepare_return();
+  uint64 satp = MAKE_SATP(p->pagetable);
+  uint64 trampoline_userret = TRAMPOLINE + (userret - trampoline);
+  ((void (*)(uint64))trampoline_userret)(satp);
 }
 
 // 进程睡眠，等待chan事件
@@ -283,6 +276,45 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
     uvmfree(pagetable, sz);
 }
 
+
+void
+userinit(void)
+{
+  struct proc *p;
+
+  p = allocproc();
+  initproc = p;
+
+  // p->cwd = namei("/");
+
+  p->state = RUNNABLE;
+
+  uint size = (uint)(_binary_user_initcode_end - _binary_user_initcode_start);
+
+  uvminit(p->pagetable, _binary_user_initcode_start, size);
+
+  // 为栈分配一页内存
+  char *stackpage = kalloc();
+  if(stackpage == 0)
+    panic("userinit: kalloc for stack");
+  memset(stackpage, 0, PGSIZE);
+  if(map_page(p->pagetable, PGSIZE, (uint64)stackpage, PTE_W|PTE_R|PTE_U) != 0)
+    panic("userinit: stack mappages");
+  
+  p->sz = 2*PGSIZE;  // 更新进程内存大小
+
+
+  // 设置trapframe，为从内核返回用户态做准备
+  // epc: 用户程序计数器，设为0让进程从地址0开始执行
+  p->trapframe->epc = 0;
+  // sp: 用户栈指针，设为PGSIZE（栈从页顶向下增长）
+  p->trapframe->sp = PGSIZE;
+
+  // 设置进程名称
+  safestrcpy(p->name, "initcode", sizeof(p->name));
+
+  release(&p->lock);
+}
 
 int 
 allocpid(void)
@@ -363,7 +395,8 @@ freeproc(struct proc *p)
 int
 kfork(void)
 {
-    int i, pid;
+    // int i;
+    int pid;
     struct proc *np;
     struct proc *p = myproc();  // 父进程
 
@@ -411,6 +444,21 @@ kfork(void)
     return pid;
 }
 
+void
+reparent(struct proc *p)
+{
+  struct proc *pp;
+
+  for(pp = proc; pp < &proc[NPROC]; pp++){
+    if(pp->parent == p){
+      pp->parent = initproc;
+      // 唤醒 init 进程(如果它在等待的话，chan一定是他自己)
+      // 唤醒的目的是为了让 init 进程能及时回收这些孤儿进程
+      wakeup(initproc); 
+    }
+  }
+}
+
 // 进程退出
 void kexit(int status) {
     struct proc *p = myproc();
@@ -430,6 +478,10 @@ void kexit(int status) {
         }
     }
 
+    acquire(&wait_lock);
+
+    reparent(p);
+
     // 唤醒父进程
     wakeup(p->parent);
 
@@ -437,37 +489,102 @@ void kexit(int status) {
     acquire(&p->lock);
     p->xstate = status;
     p->state = ZOMBIE;
-    release(&p->lock);
 
-    // 进入调度器
+    release(&wait_lock);
+
+    // 进入调度器，等调度到父进程后才能被回收资源
     sched();
     panic("zombie exit"); // 这行代码不会被执行
 }
 
 // 父进程等待子进程退出
-int kwait(uint64 *status) {
+int kwait(uint64 status_addr) {
     struct proc *p = myproc();
     int havekids, pid;
 
+    // 在子进程
+    acquire(&wait_lock);
+
     for(;;) {
+
         havekids = 0;
         for(struct proc *pp = proc; pp < &proc[NPROC]; pp++) {
             if(pp->parent == p) {
                 havekids = 1;
                 acquire(&pp->lock);
                 if(pp->state == ZOMBIE) {
+                    // panic("[DEBUG] find zombie");
                     // 回收资源
                     pid = pp->pid;
-                    if(status) *status = pp->xstate;
+                    if(status_addr && copyout(p->pagetable, status_addr, (char *)&pp->xstate, 
+                                    sizeof(pp->xstate)) < 0) {
+                        panic("[ERROR] write failed"); 
+                        release(&pp->lock);
+                        release(&wait_lock); // 这时候把子进程退出状态写入用户地址失败
+                        return -1;  // 失败返回
+                    }
                     freeproc(pp);
                     release(&pp->lock);
+                    release(&wait_lock);
+                    printf("kwait: reaped pid=%d\n", pid);
+                    // panic("[DEBUG] find zombie");
                     return pid;
                 }
                 release(&pp->lock);
             }
         }
-        if(!havekids) return -1;   // 没有子进程
+
+        // 没有子进程或者被这个进程已经被杀死
+        if(!havekids || killed(p))
+        {
+          release(&wait_lock);
+           return -1;
+        }
+              
         // 没有ZOMBIE就睡眠
-        sleep(p, &p->lock);
+        sleep(p, &wait_lock);
     }
+}
+
+int
+killed(struct proc *p)
+{
+  int k;
+  
+  acquire(&p->lock);
+  k = p->killed;
+  release(&p->lock);
+  return k;
+}
+
+// 根据给定 pid 终止对应进程。
+// 实际上并不立即强制退出：仅设置 p->killed 标志，
+// 进程在下一次从内核返回用户态（见 trap.c 的 usertrap()）时感知并退出。
+int
+kkill(int pid)
+{
+  struct proc *p;
+
+  // 遍历进程表，查找目标 pid
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);            // 修改进程状态前必须持有该进程的锁
+    if(p->pid == pid){
+      p->killed = 1;              // 标记为已被杀死，稍后由用户态返回路径处理退出
+      if(p->state == SLEEPING){   // 若进程在 sleep() 中，唤醒它以便尽快处理退出
+        p->state = RUNNABLE;
+      }
+      release(&p->lock);
+      return 0;                   // 成功找到并标记
+    }
+    release(&p->lock);
+  }
+  return -1;                      // 未找到对应 pid 的进程
+}
+
+void
+setkilled(struct proc *p)
+{
+  acquire(&p->lock);
+  p->killed = 1;
+  release(&p->lock);
 }

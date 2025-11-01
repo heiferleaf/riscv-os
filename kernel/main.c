@@ -14,20 +14,11 @@ main()
     kvminithart();   // 把页表设置为内核页表
     trapinit();      // 注册中断处理函数
     trapinithart();  // 注册中断向量表
-
     procinit();      // 初始化进程表
 
-    // 创建根测试进程
-    struct proc *p = allocproc();
+    // 创建一个用户进程
+    userinit();      // 第一个用户进程
 
-    initproc = p;
-    safestrcpy(p->name, "initproc", sizeof(p->name));
-    // 可以设置 trapframe 的入口点为 test_entry
-    // p->trapframe->epc = (uint64)test_entry; // 如果支持epc
-    // 或直接把 test_entry 放在 forkret 或进程调度后调用
-    // acquire(&p->lock);
-    p->state = RUNNABLE;
-    release(&p->lock);
     printf("main\n");
 
     // 启动调度器

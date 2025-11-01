@@ -69,7 +69,21 @@ void handle_syscall(void) {
     struct proc *p = myproc();
     // 处理系统调用逻辑
     printf("Syscall: pid=%d syscallno=%ld\n", p->pid, p->trapframe->a7);
-    // ...你的系统调用实现...
+    // ...系统调用实现...
+    p->trapframe->epc += 4; // 用户进程系统调用返回后，执行下一条指令
+
+    intr_on(); // 允许中断
+
+    // if(p->trapframe->a7 == 2 && p->pid == 2) {
+    //     panic("chi exit");
+    // }
+
+    if(p->trapframe->a7 == 2 && p->pid == 1) {
+        panic("father exit");
+    }
+
+    syscall();
+
 }
 
 void 
@@ -92,6 +106,9 @@ trapinithart(void)
 uint64
 usertrap(void)
 {
+    printf("[Usertrap] scause=0x%lx sepc=0x%lx stval=0x%lx\n",
+        r_scause(), r_sepc(), r_stval());
+
     int which_dev = 0;
 
     // 如果不是从用户态进入的，则触发 panic
@@ -121,18 +138,22 @@ usertrap(void)
     } else {
         printf("usertrap(): unexpected scause 0x%lx pid=%d\n", scause, p->pid);
         printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
-        // setkilled(p);
+        setkilled(p);
     }
 
     // 进程被kill后，后续可补充自动退出逻辑
-    // if(killed(p))
-    //     kexit(-1);
+    if(killed(p))
+        kexit(-1);
 
     prepare_return();
 
+    if(p->trapframe->a7 == 3 && p->pid == 1) {
+        printf("father wait return addr: 0x%lx\n", p->trapframe->epc);
+        panic("father wait return");
+    }
+
     // 设置回用户态的页表
     uint64 satp = MAKE_SATP(p->pagetable);
-
     return satp;
 }
 

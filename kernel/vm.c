@@ -3,6 +3,7 @@
 #include "riscv.h"
 #include "printf.h"
 #include "memlayout.h"
+#include "proc.h"
 #include <stdint.h>
 
 pagetable_t kernel_pagetable;
@@ -10,6 +11,30 @@ pagetable_t kernel_pagetable;
 extern char _etext[];
 extern char trampoline[]; // trampoline.S
 
+void
+uvminit(pagetable_t pagetable, uchar *src, uint sz)
+{
+    char *mem;
+
+    if(sz >= PGSIZE)
+      panic("uvminit: more than a page");
+    
+    // 分配一页物理内存
+    mem = kalloc();
+    if(mem == 0)
+      panic("uvminit: kalloc");
+    
+    // 清零内存页
+    memset(mem, 0, PGSIZE);
+    
+    // 将物理页映射到用户虚拟地址空间的0处
+    // 设置用户权限：可读、可写、可执行
+    if(map_page(pagetable, 0, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U) != 0)
+      panic("uvminit: mappages");
+    
+    // 将初始代码复制到分配的内存中
+    memmove(mem, src, sz);
+}
 
 pagetable_t
 kvmmake(void)
@@ -165,7 +190,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     // 查找叶子页表项（即实际映射的物理页）
-    if((pte = walk_lookup(pagetable, a) == 0))
+    if((pte = walk_lookup(pagetable, a)) == 0)
       continue;   // 没有分配页表项，跳过
     if((*pte & PTE_V) == 0)
       continue;   // 没有分配物理页，跳过
@@ -177,6 +202,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   }
 }
 
+// 考虑改为COW
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
@@ -267,4 +293,183 @@ uint64 walkaddr(pagetable_t pt, uint64 va) {
     pte_t* pte = walk_lookup(pt, va);
     if(!pte || !(*pte & PTE_V)) return 0;
     return PTE2PA(*pte) | (va & 0xFFF);
+}
+
+/*
+ * 从内核空间拷贝数据到用户空间。
+ *
+ * 功能：
+ *   将 src 指向的内核缓冲区中的 len 字节数据，拷贝到用户页表 pagetable 所映射的虚拟地址 dstva 处。
+ *   支持跨页拷贝，自动处理缺页（如页未映射时尝试 vmfault 处理）。
+ *
+ * 参数：
+ *   pagetable - 用户进程的页表指针。
+ *   dstva     - 用户空间的目标虚拟地址。
+ *   src       - 源内核缓冲区指针。
+ *   len       - 需要拷贝的字节数。
+ *
+ * 返回值：
+ *   成功返回 0，失败（如地址无效或缺页处理失败、目标页不可写）返回 -1。
+ *
+ * 实现细节：
+ *   1. 循环处理每一页，直到所有数据拷贝完成。
+ *   2. 通过 walkaddr 获取虚拟地址对应的物理地址，若未映射则调用 vmfault 处理缺页。
+ *   3. 检查目标页表项是否可写（PTE_W），只允许写入可写页。
+ *   4. 计算本页可拷贝的字节数 n，避免跨页越界。
+ *   5. 使用 memmove 进行实际数据拷贝。
+ *   6. 更新剩余字节数、源地址和目标虚拟地址，进入下一页处理。
+ */
+int
+copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
+{
+    uint64 n, va0, pa0;
+    pte_t *pte;
+
+    while(len > 0){
+        va0 = PGROUNDDOWN(dstva); // 计算当前页的起始虚拟地址
+        if(va0 >= MAXVA)          // 检查虚拟地址是否越界
+            return -1;
+    
+        pa0 = walkaddr(pagetable, va0); // 获取虚拟地址对应的物理地址
+        if(pa0 == 0) {                  // 如果没有映射，尝试缺页处理
+            if((pa0 = vmfault(pagetable, va0, 0)) == 0) {
+                return -1;                  // 缺页处理失败
+            }
+        }
+
+        pte = walk_lookup(pagetable, va0);  // 获取页表项指针
+        // 禁止向只读用户代码页写入数据
+        if((*pte & PTE_W) == 0)
+            return -1;
+            
+        n = PGSIZE - (dstva - va0);     // 计算本页可拷贝的字节数
+        if(n > len)
+            n = len;
+        memmove((void *)(pa0 + (dstva - va0)), src, n); // 拷贝数据到用户空间
+
+        len -= n;       // 更新剩余字节数
+        src += n;       // 更新源地址指针
+        dstva = va0 + PGSIZE; // 移动到下一页
+    }
+    return 0;
+}
+
+/*
+ * 从用户空间拷贝数据到内核空间。
+ * 
+ * 功能：
+ *   从给定页表的虚拟地址 srcva 处，拷贝 len 字节数据到内核缓冲区 dst。
+ *   支持跨页拷贝，自动处理页错误（如页未映射时尝试缺页处理）。
+ * 
+ * 参数：
+ *   pagetable - 页表指针，指定用户空间的地址映射。
+ *   dst       - 目标内核缓冲区指针，用于存放拷贝的数据。
+ *   srcva     - 用户空间的源虚拟地址。
+ *   len       - 需要拷贝的字节数。
+ * 
+ * 返回值：
+ *   成功返回 0，失败（如地址无效或缺页处理失败）返回 -1。
+ * 
+ * 实现细节：
+ *   1. 循环处理每一页，直到所有数据拷贝完成。
+ *   2. 通过 walkaddr 获取虚拟地址对应的物理地址，若未映射则调用 vmfault 处理缺页。
+ *   3. 计算本页可拷贝的字节数 n，避免跨页越界。
+ *   4. 使用 memmove 进行实际数据拷贝。
+ *   5. 更新剩余字节数、目标地址和源虚拟地址，进入下一页处理。
+ */
+int
+copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
+{
+  uint64 n, va0, pa0;
+
+  while(len > 0){
+    va0 = PGROUNDDOWN(srcva);
+    pa0 = walkaddr(pagetable, va0);
+    if(pa0 == 0)
+      return -1;
+    n = PGSIZE - (srcva - va0);
+    if(n > len)
+      n = len;
+    memmove(dst, (char *)(pa0 + (srcva - va0)), n);
+
+    len -= n;
+    dst += n;
+    srcva += n;
+  }
+  return 0;
+}
+
+int
+copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
+{
+  uint64 n, va0, pa0;
+  int got_null = 0;
+
+  while(got_null == 0 && max > 0){
+    va0 = PGROUNDDOWN(srcva);
+    pa0 = walkaddr(pagetable, va0);
+    if(pa0 == 0)
+      return -1;
+    n = PGSIZE - (srcva - va0);
+    if(n > max)
+      n = max;
+
+    char *p = (char *) (pa0 + (srcva - va0));
+    while(n > 0){
+      if(*p == '\0'){
+        *dst = '\0';
+        got_null = 1;
+        break;
+      } else {
+        *dst = *p;
+      }
+      --n;
+      --max;
+      p++;
+      dst++;
+    }
+
+    srcva = va0 + PGSIZE;
+  }
+  if(got_null){
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
+uint64
+vmfault(pagetable_t pagetable, uint64 va, int read)
+{
+  uint64 mem;
+  struct proc *p = myproc();
+
+  if (va >= p->sz)
+    return 0;
+  va = PGROUNDDOWN(va);
+  if(ismapped(pagetable, va)) {
+    return 0;
+  }
+  mem = (uint64) kalloc();
+  if(mem == 0)
+    return 0;
+  memset((void *) mem, 0, PGSIZE);
+  if (map_page(p->pagetable, va, mem, PTE_W|PTE_U|PTE_R) != 0) {
+    kfree((void *)mem);
+    return 0;
+  }
+  return mem;
+}
+
+int
+ismapped(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte = walk_lookup(pagetable, va);
+  if (pte == 0) {
+    return 0;
+  }
+  if (*pte & PTE_V){
+    return 1;
+  }
+  return 0;
 }

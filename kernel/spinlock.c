@@ -20,10 +20,9 @@ initlock(struct spinlock *lk, char* name)
 void
 acquire(struct spinlock *lk)
 {
-    push_off(); // 关闭中断，防止死锁
+    push_off(); // 关闭中断，防止死锁，但是单核的时候，这样可能会有死锁
     if(holding(lk)) {
-        // panic 还未实现
-        // panic("acquire");
+        panic("acquire");
     }
     while(__sync_lock_test_and_set(&lk->locked, 1) != 0)
         ; // 自旋等待
