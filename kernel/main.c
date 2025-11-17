@@ -5,6 +5,8 @@
 #include "defs.h"
 #include "proc.h"
 
+extern struct superblock sb;
+
 void
 main()
 {
@@ -16,13 +18,16 @@ main()
     trapinithart();  // 注册中断向量表
     procinit();      // 初始化进程表
 
-    // 创建一个用户进程
+    virtio_disk_init(); // 必须在前！
+
+    binit();    // 初始化缓冲区缓存
+    printf("binit done\n");
+    iinit();       // 初始化 inode 表
+    printf("iinit done\n");
+    fileinit();      // file table
+
     userinit();      // 第一个用户进程
-
-    printf("main\n");
-
-    // 启动调度器
     scheduler();
 
-    // 不再需要裸 while(1){}
+    printf("kernel main exit\n");
 }

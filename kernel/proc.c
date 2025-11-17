@@ -138,7 +138,7 @@ scheduler(void)
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      printf("[scheduler]: check pid=%d state=%d\n", p->pid, p->state);
+      // printf("[scheduler]: check pid=%d state=%d\n", p->pid, p->state);
       if(p->state == RUNNABLE) {
         // 切换到选中的进程。进程自己负责释放锁，
         // 并在跳回调度器前重新获取锁。
@@ -179,25 +179,24 @@ forkret(void)
   // 仍然持有 scheduler 传递过来的 p->lock。
   release(&p->lock);
 
-//   if (first) {
-//     // 文件系统初始化必须在常规进程上下文中运行（例如会调用 sleep），因此不能在 main() 中运行。
-//     fsinit(ROOTDEV);
+  if (first) {
+    // 文件系统初始化必须在常规进程上下文中运行（例如会调用 sleep），因此不能在 main() 中运行。
+    fsinit(ROOTDEV);
 
-//     first = 0;
-//     // 确保其他核心能看到 first=0。
-//     __sync_synchronize();
+    first = 0;
+    // 确保其他核心能看到 first=0。
+    __sync_synchronize();
 
-//     // 文件系统初始化完成后可以调用 kexec()。
-//     // 将 kexec 的返回值（argc）放入 a0。
-//     p->trapframe->a0 = kexec("/init", (char *[]){ "/init", 0 });
-//     if (p->trapframe->a0 == -1) {
-//       panic("exec");
-//     }
-//   }
+    // 文件系统初始化完成后可以调用 kexec()。
+    // 将 kexec 的返回值（argc）放入 a0。
+    // p->trapframe->a0 = kexec("/init", (char *[]){ "/init", 0 });
+    // if (p->trapframe->a0 == -1) {
+    //   panic("exec");
+    // }
+  }
 
   // 这里选择直接运行测试代码
   printf("forkret: enter pid=%d, kstack=%p\n", p->pid, (void*)p->kstack);
-  // test_entry();
 
   // 返回用户空间，模拟 usertrap() 的返回。
   prepare_return();
@@ -336,7 +335,6 @@ allocpid(void)
 struct proc*
 allocproc(void)
 {
-  printf("[TEXT] enter allocproc\n");
     struct proc *p;
 
     for(p = proc; p < &proc[NPROC]; p++) {
@@ -349,7 +347,6 @@ allocproc(void)
 
             // 给内核的页表添加该进程的 trap 帧的物理页
             p->trapframe = (struct trapframe *)kalloc();
-            printf("[TEXT] allocproc: pid=%d, trapframe=%p\n", p->pid, (void*)p->trapframe);
             if(p->trapframe == 0) {
                 freeproc(p);
                 release(&p->lock);
@@ -367,7 +364,6 @@ allocproc(void)
             p->context.ra = (uint64)forkret;
             p->context.sp = p->kstack + PGSIZE;
 
-            printf("[TEXT] allocproc: pid=%d, kstack=%p\n", p->pid, (void*)p->kstack);
             return p;
         } else
             release(&p->lock);
@@ -587,4 +583,61 @@ setkilled(struct proc *p)
   acquire(&p->lock);
   p->killed = 1;
   release(&p->lock);
+}
+
+int
+either_copyout(int user_dst, uint64 dst, void *src, uint64 len)
+{
+  struct proc *p = myproc();
+  if(user_dst){
+    return copyout(p->pagetable, dst, src, len);
+  } else {
+    memmove((char *)dst, src, len);
+    return 0;
+  }
+}
+
+// Copy from either a user address, or kernel address,
+// depending on usr_src.
+// Returns 0 on success, -1 on error.
+int
+either_copyin(void *dst, int user_src, uint64 src, uint64 len)
+{
+  struct proc *p = myproc();
+  if(user_src){
+    return copyin(p->pagetable, dst, src, len);
+  } else {
+    memmove(dst, (char*)src, len);
+    return 0;
+  }
+}
+
+// Print a process listing to console.  For debugging.
+// Runs when user types ^P on console.
+// No lock to avoid wedging a stuck machine further.
+void
+procdump(void)
+{
+  static char *states[] = {
+  [UNUSED]    "unused",
+  [USED]      "used",
+  [SLEEPING]  "sleep ",
+  [RUNNABLE]  "runble",
+  [RUNNING]   "run   ",
+  [ZOMBIE]    "zombie"
+  };
+  struct proc *p;
+  char *state;
+
+  printf("\n");
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(p->state == UNUSED)
+      continue;
+    if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
+      state = states[p->state];
+    else
+      state = "???";
+    printf("%d %s %s", p->pid, state, p->name);
+    printf("\n");
+  }
 }

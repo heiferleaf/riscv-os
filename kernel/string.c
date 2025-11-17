@@ -59,3 +59,24 @@ strlen(const char *s)
     ;
   return n;
 }
+
+// 字符串比较函数
+int strncmp(const char *p, const char *q, uint n)
+{
+    while(n > 0 && *p && *p == *q)
+        n--, p++, q++;
+    if(n == 0)
+        return 0;
+    return (uchar)*p - (uchar)*q;
+}
+
+// 字符串复制函数
+char* strncpy(char *s, const char *t, int n)
+{
+    char *os = s;
+    while(n-- > 0 && (*s++ = *t++) != 0)
+        ;
+    while(n-- > 0)
+        *s++ = 0;
+    return os;
+}
